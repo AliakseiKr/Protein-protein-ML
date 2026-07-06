@@ -1,156 +1,112 @@
-# ProteinGraph Architecture
-
-ProteinGraph separates intrinsic protein features from optional external biological knowledge.
-
-The core model should use features derived from the protein itself: sequence, structure,
-domains, localization, surface properties, predicted interfaces, and pairwise physical
-compatibility.
-
-External biological knowledge such as STRING, GO, Reactome, KEGG, and SynGO must live in
-a separate optional layer to reduce information leakage and allow fair ablation studies.
-
-## Feature layers
-
-### Model A: intrinsic protein features only
-
-Uses sequence, embeddings, domains, localization, structure, surface, interface, and
-pairwise compatibility features.
-
-### Model B: intrinsic features + evolution
-
-Adds orthology, paralogy, conservation, phylogenetic profile similarity, and co-evolution.
-
-### Model C: intrinsic features + evolution + biological knowledge
-
-Adds STRING, Reactome, GO, KEGG, SynGO, pathway co-membership, and other external
-knowledge-derived features.
-
-## Core protein features
+## Feature Categories
 
 ### Sequence features
 
-- protein_id
-- sequence
-- protein_length
-- amino_acid_composition
+Describe the amino acid sequence itself.
+
+- protein_id — Unique protein identifier.
+- sequence — Amino acid sequence.
+- protein_length — Number of amino acids.
+- amino_acid_composition — Frequency of each amino acid in the sequence.
 
 ### Embedding features
 
-- sequence_embedding
-- structure_embedding
+High-dimensional numerical representations learned by protein language models.
+
+- sequence_embedding — Learned representation of the protein sequence.
+- structure_embedding — Learned representation of the protein structure.
+
+These embeddings capture complex biological patterns that are difficult to engineer manually.
 
 ### Domain features
 
-- domains
-- domain_count
-- domain_architecture
+Describe the functional building blocks of a protein.
+
+- domains — List of detected domains.
+- domain_count — Number of domains.
+- domain_architecture — Order and arrangement of domains.
 
 ### Localization features
 
-- localization_terms
-- transmembrane_region_count
-- has_transmembrane_region
-- signal_peptide
-- signal_peptide_length
+Describe where the protein is expected to function inside the cell.
 
-### Structure confidence and disorder-like features
-
-- mean_pLDDT
-- low_pLDDT_fraction
-- high_pLDDT_fraction
-- mean_PAE
-- pae_summary
-
-### Secondary structure features
-
-- secondary_structure_fraction_helix
-- secondary_structure_fraction_sheet
-- secondary_structure_fraction_coil
+- localization_terms — Predicted or known cellular locations.
+- is_membrane — Whether the protein is membrane-associated.
+- is_secreted — Whether the protein is secreted.
+- is_extracellular — Whether the protein is extracellular.
+- is_cytoplasmic — Whether the protein is cytoplasmic.
+- is_nuclear — Whether the protein is nuclear.
+- transmembrane_region_count — Number of membrane-spanning regions.
+- has_transmembrane_region — Whether the protein has at least one transmembrane region.
+- signal_peptide — Presence of a signal peptide.
+- signal_peptide_length — Length of the signal peptide.
 
 ### Surface features
 
-- mean_solvent_accessibility
-- exposed_residue_fraction
-- surface_charge
-- surface_hydrophobicity
-- polar_surface_area
+Describe the physical properties of the protein surface.
 
-### Compactness and shape features
+- mean_solvent_accessibility — Average exposure to solvent.
+- exposed_residue_fraction — Fraction of surface-exposed residues.
+- surface_charge — Overall surface electrostatic properties.
+- surface_hydrophobicity — Overall surface hydrophobicity.
+- polar_surface_area — Accessible polar surface area.
 
-- radius_of_gyration
-- asphericity
-- surface_area_to_volume
-
-### Interface features
-
-- predicted_interface_residues
-- interface_residue_fraction
-- alphafold_interface_score
-
-## Core pair features
-
-### Sequence and embedding similarity
-
-- sequence_similarity
-- sequence_embedding_cosine_similarity
-- structure_embedding_cosine_similarity
+## Pairwise Feature Categories
 
 ### Domain compatibility
 
-- domain_overlap
-- domain_architecture_compatibility
+Evaluate whether domain organization supports interaction.
+
+- domain_overlap — Shared domains.
+- domain_architecture_compatibility — Compatibility of domain arrangements.
 
 ### Localization compatibility
 
-- localization_similarity
-- same_localization
-- compatible_localization
-- both_membrane
-- one_secreted_one_membrane
-- tm_region_difference
-- signal_peptide_match
+Determine whether proteins are likely to meet in the same cellular environment.
 
-### Structure compatibility
-
-- plddt_difference
-- pae_compatibility
-- secondary_structure_similarity
+- localization_similarity — Similarity of localization.
+- same_localization — Same compartment.
+- compatible_localization — Compatible compartments.
+- both_membrane — Both proteins are membrane-associated.
+- one_secreted_one_membrane — Secreted protein paired with a membrane protein.
+- tm_region_difference — Difference in transmembrane content.
+- signal_peptide_match — Similar signal peptide properties.
 
 ### Surface compatibility
 
-- solvent_accessibility_difference
-- surface_charge_difference
-- surface_hydrophobicity_difference
+Compare physicochemical surface properties.
 
-### Compactness compatibility
-
-- radius_of_gyration_difference
-- compactness_similarity
+- solvent_accessibility_difference — Difference in solvent exposure.
+- surface_charge_difference — Difference in surface charge.
+- surface_hydrophobicity_difference — Difference in hydrophobicity.
 
 ### Interface compatibility
 
-- interface_residue_compatibility
-- alphafold_interface_score
+Estimate whether two proteins have compatible interaction surfaces.
 
-## Evolution layer
+- interface_residue_compatibility — Compatibility of predicted interface regions.
+- alphafold_interface_score — Predicted interface compatibility score.
 
-- ortholog_count
-- has_mouse_ortholog
-- has_human_ortholog
-- paralog_count
-- sequence_conservation
-- ortholog_interaction_transfer
-- co_evolution_score
-- phylogenetic_profile_similarity
+## Evolution Layer
 
-## Optional biological knowledge layer
+Evolutionary features describe how proteins have changed across species.
 
-These features are useful but must remain optional because they can introduce leakage from
-known biological databases.
+- ortholog_count — Number of orthologs.
+- has_mouse_ortholog — Presence of a mouse ortholog.
+- has_human_ortholog — Presence of a human ortholog.
+- paralog_count — Number of paralogs.
+- sequence_conservation — Degree of evolutionary conservation.
+- ortholog_interaction_transfer — Evidence transferred from ortholog interactions.
+- co_evolution_score — Degree of coordinated evolution.
+- phylogenetic_profile_similarity — Similarity of evolutionary profiles.
 
-- STRING score
-- Reactome overlap
-- GO overlap
-- KEGG overlap
-- SynGO overlap
-- known pathway co-membership
+## Biological Knowledge Layer
+
+This layer contains curated biological knowledge rather than intrinsic protein properties.
+
+- STRING score — Evidence-based interaction confidence.
+- Reactome overlap — Shared biological pathways.
+- GO overlap — Shared Gene Ontology annotations.
+- KEGG overlap — Shared KEGG pathways.
+- SynGO overlap — Shared synaptic annotations.
+- known pathway co-membership — Whether both proteins belong to the same curated pathway.
