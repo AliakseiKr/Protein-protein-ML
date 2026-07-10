@@ -1,112 +1,394 @@
-## Feature Categories
+# ProteinGraph Architecture
 
-### Sequence features
+## 1. Overview
 
-Describe the amino acid sequence itself.
+ProteinGraph is a modular framework for predicting protein-protein interactions (PPIs)
+from intrinsic protein properties while keeping external biological knowledge
+strictly separated.
 
-- protein_id — Unique protein identifier.
-- sequence — Amino acid sequence.
-- protein_length — Number of amino acids.
-- amino_acid_composition — Frequency of each amino acid in the sequence.
+The project is designed around three principles:
 
-### Embedding features
+- modularity
+- reproducibility
+- extensibility
 
-High-dimensional numerical representations learned by protein language models.
+Each component has a single responsibility and can be developed independently.
 
-- sequence_embedding — Learned representation of the protein sequence.
-- structure_embedding — Learned representation of the protein structure.
+---
 
-These embeddings capture complex biological patterns that are difficult to engineer manually.
+## 2. Design Philosophy
 
-### Domain features
+ProteinGraph separates the complete workflow into independent stages.
 
-Describe the functional building blocks of a protein.
+```text
+External databases
+        │
+        ▼
+Data ingestion
+        │
+        ▼
+Canonical schemas
+        │
+        ▼
+Protein feature extraction
+        │
+        ▼
+Protein feature cache
+        │
+        ▼
+Pair feature generation
+        │
+        ▼
+Machine learning models
+```
 
-- domains — List of detected domains.
-- domain_count — Number of domains.
-- domain_architecture — Order and arrangement of domains.
+Each stage communicates through well-defined interfaces.
 
-### Localization features
+This architecture makes it possible to replace any component without affecting the
+rest of the project.
 
-Describe where the protein is expected to function inside the cell.
+---
 
-- localization_terms — Predicted or known cellular locations.
-- is_membrane — Whether the protein is membrane-associated.
-- is_secreted — Whether the protein is secreted.
-- is_extracellular — Whether the protein is extracellular.
-- is_cytoplasmic — Whether the protein is cytoplasmic.
-- is_nuclear — Whether the protein is nuclear.
-- transmembrane_region_count — Number of membrane-spanning regions.
-- has_transmembrane_region — Whether the protein has at least one transmembrane region.
-- signal_peptide — Presence of a signal peptide.
-- signal_peptide_length — Length of the signal peptide.
+## 3. Core Philosophy
 
-### Surface features
+The project distinguishes between intrinsic protein properties and external
+biological knowledge.
 
-Describe the physical properties of the protein surface.
+Intrinsic properties describe the protein itself.
 
-- mean_solvent_accessibility — Average exposure to solvent.
-- exposed_residue_fraction — Fraction of surface-exposed residues.
-- surface_charge — Overall surface electrostatic properties.
-- surface_hydrophobicity — Overall surface hydrophobicity.
-- polar_surface_area — Accessible polar surface area.
+Examples:
 
-## Pairwise Feature Categories
+- sequence
+- domains
+- localization
+- AlphaFold structure
+- surface properties
+- embeddings
 
-### Domain compatibility
+External biological knowledge describes what is already known about proteins.
 
-Evaluate whether domain organization supports interaction.
+Examples:
 
-- domain_overlap — Shared domains.
-- domain_architecture_compatibility — Compatibility of domain arrangements.
+- STRING
+- Reactome
+- GO
+- KEGG
+- SynGO
 
-### Localization compatibility
+Keeping these layers separate allows fair benchmarking and reduces information
+leakage.
 
-Determine whether proteins are likely to meet in the same cellular environment.
+---
 
-- localization_similarity — Similarity of localization.
-- same_localization — Same compartment.
-- compatible_localization — Compatible compartments.
-- both_membrane — Both proteins are membrane-associated.
-- one_secreted_one_membrane — Secreted protein paired with a membrane protein.
-- tm_region_difference — Difference in transmembrane content.
-- signal_peptide_match — Similar signal peptide properties.
+## 4. Project Structure
 
-### Surface compatibility
+```text
+protein_graph/
 
-Compare physicochemical surface properties.
+├── data_sources/
+├── schemas/
+├── features/
+├── knowledge/
+├── graph/
+├── models/
+├── utils/
+```
 
-- solvent_accessibility_difference — Difference in solvent exposure.
-- surface_charge_difference — Difference in surface charge.
-- surface_hydrophobicity_difference — Difference in hydrophobicity.
+---
 
-### Interface compatibility
+## 5. Data Sources
 
-Estimate whether two proteins have compatible interaction surfaces.
+Responsible only for downloading and normalizing public databases.
 
-- interface_residue_compatibility — Compatibility of predicted interface regions.
-- alphafold_interface_score — Predicted interface compatibility score.
+Examples:
 
-## Evolution Layer
+- BioGRID
+- UniProt
+- AlphaFold
+- InterPro
+- Pfam
+- OrthoDB
 
-Evolutionary features describe how proteins have changed across species.
+A data source should never compute machine-learning features.
 
-- ortholog_count — Number of orthologs.
-- has_mouse_ortholog — Presence of a mouse ortholog.
-- has_human_ortholog — Presence of a human ortholog.
-- paralog_count — Number of paralogs.
-- sequence_conservation — Degree of evolutionary conservation.
-- ortholog_interaction_transfer — Evidence transferred from ortholog interactions.
-- co_evolution_score — Degree of coordinated evolution.
-- phylogenetic_profile_similarity — Similarity of evolutionary profiles.
+Its responsibility ends after producing a normalized DataFrame.
 
-## Biological Knowledge Layer
+---
 
-This layer contains curated biological knowledge rather than intrinsic protein properties.
+## 6. Canonical Schemas
 
-- STRING score — Evidence-based interaction confidence.
-- Reactome overlap — Shared biological pathways.
-- GO overlap — Shared Gene Ontology annotations.
-- KEGG overlap — Shared KEGG pathways.
-- SynGO overlap — Shared synaptic annotations.
-- known pathway co-membership — Whether both proteins belong to the same curated pathway.
+Schemas define the internal representation of every object used by ProteinGraph.
+
+Every external database must be converted into these schemas.
+
+Examples:
+
+- proteins
+- interactions
+- pairs
+
+No downstream module should depend on database-specific column names.
+
+---
+
+## 7. Feature Extraction
+
+Every feature family is implemented independently.
+
+Feature extractors receive a protein and return only features belonging to
+their own domain.
+
+Example:
+
+Protein
+
+↓
+
+LocalizationExtractor
+
+↓
+
+{
+    "is_membrane": True,
+    "is_secreted": False,
+    ...
+}
+
+Extractors never depend on each other.
+
+---
+
+## 8. Protein Feature Groups
+
+### Sequence
+
+- protein_id
+- sequence
+- protein_length
+- amino_acid_composition
+
+Source:
+
+UniProt
+
+---
+
+### Embeddings
+
+- sequence_embedding
+- structure_embedding
+
+Source:
+
+ESM
+ProtT5
+
+---
+
+### Domains
+
+- domains
+- domain_count
+- domain_architecture
+
+Source:
+
+InterPro
+Pfam
+
+---
+
+### Localization
+
+- localization_terms
+- is_membrane
+- is_secreted
+- is_extracellular
+- is_cytoplasmic
+- is_nuclear
+- transmembrane_region_count
+- has_transmembrane_region
+- signal_peptide
+- signal_peptide_length
+
+Source:
+
+UniProt
+
+---
+
+### Secondary Structure
+
+- secondary_structure_fraction_helix
+- secondary_structure_fraction_sheet
+- secondary_structure_fraction_coil
+
+Source:
+
+AlphaFold
+
+↓
+
+DSSP
+
+---
+
+### Surface
+
+- mean_solvent_accessibility
+- exposed_residue_fraction
+- surface_charge
+- surface_hydrophobicity
+- polar_surface_area
+
+Source:
+
+AlphaFold
+
+↓
+
+FreeSASA
+
+---
+
+## 9. Protein Feature Cache
+
+Protein features should be computed only once.
+
+```text
+Protein
+
+↓
+
+Feature extractors
+
+↓
+
+Protein feature table
+
+↓
+
+Parquet cache
+```
+
+Whenever possible, downstream modules should reuse cached features.
+
+---
+
+## 10. Pair Feature Generation
+
+Pairwise features are generated from cached protein features.
+
+No external databases should be queried during this stage.
+
+### Sequence
+
+- sequence_similarity
+- sequence_embedding_cosine_similarity
+- structure_embedding_cosine_similarity
+
+### Domains
+
+- domain_overlap
+- domain_architecture_compatibility
+
+### Localization
+
+- localization_similarity
+- same_localization
+- compatible_localization
+- both_membrane
+- one_secreted_one_membrane
+- tm_region_difference
+- signal_peptide_match
+
+### Secondary Structure
+
+- secondary_structure_similarity
+
+### Surface
+
+- solvent_accessibility_difference
+- surface_charge_difference
+- surface_hydrophobicity_difference
+
+---
+
+## 11. Evolution Layer
+
+Optional feature family.
+
+Examples:
+
+- ortholog_count
+- paralog_count
+- sequence_conservation
+- co_evolution_score
+- phylogenetic_profile_similarity
+
+---
+
+## 12. Biological Knowledge Layer
+
+Optional feature family.
+
+Examples:
+
+- STRING score
+- GO overlap
+- Reactome overlap
+- KEGG overlap
+- SynGO overlap
+
+These features should never be required for the core model.
+
+---
+
+## 13. Model Configurations
+
+ProteinGraph supports multiple experimental configurations.
+
+### Model A
+
+Intrinsic protein features only.
+
+### Model B
+
+Intrinsic features + evolution.
+
+### Model C
+
+Intrinsic features + evolution + biological knowledge.
+
+---
+
+## 14. Implementation Principles
+
+Feature extraction must be modular.
+
+Each feature family should be independently:
+
+- implemented
+- tested
+- cached
+- enabled
+- disabled
+
+Missing feature groups must never prevent model training.
+
+---
+
+## 15. Future Modules
+
+Future modules may include:
+
+- graph construction
+- graph neural networks
+- feature selection
+- explainability
+- benchmarking
+- visualization
+- model interpretation
+
+These modules should build upon the existing architecture without requiring changes
+to lower layers.
