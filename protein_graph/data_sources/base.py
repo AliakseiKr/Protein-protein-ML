@@ -2,59 +2,56 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-
 
 class BaseDataSource(ABC):
-    """Base class for all external biological data sources.
+    """Base class for external biological data sources.
 
-    A data source is responsible for fetching data from one external
-    biological resource and returning a normalized pandas DataFrame.
+    A data source follows a three-stage lifecycle:
 
-    Public API:
-        fetch()
+    1. Download or verify raw source data.
+    2. Parse source-specific raw data.
+    3. Normalize parsed data into a project-friendly format.
 
-    Internal lifecycle:
-        _download()
-        _parse()
-        _normalize()
+    The public entry point is :meth:`load`.
     """
 
-    def __init__(
-        self,
-        raw_dir: str | Path = "data/raw",
-    ) -> None:
+    def __init__(self, raw_dir: str | Path) -> None:
         self.raw_dir = Path(raw_dir)
+
+    @abstractmethod
+    def _download(self, force: bool = False) -> None:
+        """Ensure that the required raw data is available locally.
+
+        Parameters
+        ----------
+        force:
+            Download the source again even when a cached raw file exists.
+        """
+
+    @abstractmethod
+    def _parse(self) -> Any:
+        """Parse locally stored source-specific data."""
+
+    @abstractmethod
+    def _normalize(self, data: Any) -> Any:
+        """Normalize parsed source-specific data."""
+
+    def load(self, force_download: bool = False) -> Any:
+        """Download, parse, and normalize data.
+
+        Parameters
+        ----------
+        force_download:
+            Force a fresh download even when cached raw data exists.
+
+        Returns
+        -------
+        Any
+            Normalized source data.
+        """
         self.raw_dir.mkdir(parents=True, exist_ok=True)
 
-    def fetch(self) -> pd.DataFrame:
-        """Fetch, parse, normalize, and return the data source table."""
-        self._download()
-        raw_data = self._parse()
-        normalized_data = self._normalize(raw_data)
-        return normalized_data
+        self._download(force=force_download)
+        parsed_data = self._parse()
 
-    def _download(self) -> None:
-        """Download raw data if needed.
-
-        This method is optional. Data sources that do not need downloading
-        can use the default no-op implementation.
-        """
-        return None
-
-    @abstractmethod
-    def _parse(self) -> pd.DataFrame:
-        """Parse raw source data into a pandas DataFrame."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def _normalize(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Normalize source-specific data into ProteinGraph format."""
-        raise NotImplementedError
-
-    def __repr__(self) -> str:
-        params = {
-            "raw_dir": str(self.raw_dir),
-        }
-        formatted = ", ".join(f"{key}={value!r}" for key, value in params.items())
-        return f"{self.__class__.__name__}({formatted})"
+        return self._normalize(parsed_data)
