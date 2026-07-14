@@ -6,7 +6,7 @@ from protein_graph.features.base import FeatureExtractor
 from protein_graph.features.sequence.constants import LOCAL_GROUPS, WINDOW_SIZES
 
 
-DENSITY_THRESHOLD = 0.9
+DENSITY_THRESHOLD = 0.75
 
 
 class LocalDensityExtractor(FeatureExtractor):
