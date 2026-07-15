@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -54,15 +55,46 @@ class TrainingDatasetPipeline:
             force_download=force_download,
         )
 
+        resolved_accessions = set(
+            protein_features["protein_id"].astype(str)
+        )
+
+        unresolved_accessions = sorted(
+            set(accessions) - resolved_accessions
+        )
+
+        available_interactions = complete_interactions.loc[
+            complete_interactions["protein_a_id"].isin(
+                resolved_accessions
+            )
+            & complete_interactions["protein_b_id"].isin(
+                resolved_accessions
+            )
+        ].copy()
+
+        pairs_dropped_missing_features = (
+            len(complete_interactions)
+            - len(available_interactions)
+        )
+
         pair_features = self.pair_feature_pipeline.build(
-            interactions=complete_interactions,
+            interactions=available_interactions,
             protein_features=protein_features,
         )
 
         report = {
             **coverage,
-            "unique_uniprot_accessions": len(accessions),
+            "requested_uniprot_accessions": len(accessions),
+            "resolved_uniprot_accessions": len(
+                resolved_accessions
+            ),
+            "unresolved_uniprot_accessions": (
+                unresolved_accessions
+            ),
             "protein_feature_rows": len(protein_features),
+            "pairs_dropped_missing_protein_features": (
+                pairs_dropped_missing_features
+            ),
             "pair_feature_rows": len(pair_features),
         }
 
@@ -80,8 +112,6 @@ class TrainingDatasetPipeline:
         force_download: bool = False,
     ) -> tuple[pd.DataFrame, dict[str, Any]]:
         """Build and save the pair-level feature dataset."""
-        import json
-
         pair_features, report = self.build(
             interactions=interactions,
             force_download=force_download,
@@ -92,7 +122,10 @@ class TrainingDatasetPipeline:
         pair_features.to_parquet(output, index=False)
 
         report_destination = Path(report_path)
-        report_destination.parent.mkdir(parents=True, exist_ok=True)
+        report_destination.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
         report_destination.write_text(
             json.dumps(report, indent=2),
             encoding="utf-8",

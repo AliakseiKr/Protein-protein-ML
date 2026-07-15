@@ -38,9 +38,14 @@ class UniProtDataSource(BaseDataSource):
 
         self.accessions = sorted(cleaned_accessions)
         self.timeout = timeout
+        self.unresolved_accessions: list[str] = []
+
+
 
     def _download(self, force: bool = False) -> None:
         """Download UniProt records in batches and cache them separately."""
+        self.unresolved_accessions = []
+
         missing_accessions = [
             accession
             for accession in self.accessions
@@ -62,22 +67,20 @@ class UniProtDataSource(BaseDataSource):
                 if record.get("primaryAccession")
             }
 
-            unresolved = set(batch) - set(records_by_accession)
+            unresolved = sorted(
+                set(batch) - set(records_by_accession)
+            )
 
-            if unresolved:
-                raise RuntimeError(
-                    "UniProt did not return records for accessions: "
-                    f"{sorted(unresolved)}"
-                )
+            self.unresolved_accessions.extend(unresolved)
 
-            for accession in batch:
-                record = records_by_accession[accession]
+            for accession, record in records_by_accession.items():
                 destination = self._record_path(accession)
 
                 destination.write_text(
                     json.dumps(record, indent=2),
                     encoding="utf-8",
                 )
+
 
     def _download_batch(
         self,
@@ -128,20 +131,25 @@ class UniProtDataSource(BaseDataSource):
 
         return results
 
+
+
     def _parse(self) -> list[dict[str, Any]]:
-        """Read cached UniProt JSON records."""
+        """Read available cached UniProt JSON records."""
         records = []
 
         for accession in self.accessions:
             path = self._record_path(accession)
 
             if not path.exists():
-                raise FileNotFoundError(
-                    f"Cached UniProt record not found: {path}"
-                )
+                if accession not in self.unresolved_accessions:
+                    self.unresolved_accessions.append(accession)
+
+                continue
 
             try:
-                record = json.loads(path.read_text(encoding="utf-8"))
+                record = json.loads(
+                    path.read_text(encoding="utf-8")
+                )
             except json.JSONDecodeError as error:
                 raise ValueError(
                     f"Invalid cached UniProt JSON: {path}"
@@ -150,6 +158,7 @@ class UniProtDataSource(BaseDataSource):
             records.append(record)
 
         return records
+
 
     def _normalize(
         self,

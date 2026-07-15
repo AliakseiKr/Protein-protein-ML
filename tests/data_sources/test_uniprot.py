@@ -277,7 +277,9 @@ def test_download_skips_cached_records(
     source._download()
 
 
-def test_download_rejects_missing_batch_results(
+
+
+def test_download_records_unresolved_accessions(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -296,8 +298,31 @@ def test_download_rejects_missing_batch_results(
         ],
     )
 
-    with pytest.raises(
-        RuntimeError,
-        match="did not return records",
-    ):
-        source._download()
+    source._download()
+
+    assert source.unresolved_accessions == ["Q99999"]
+    assert (tmp_path / "P12345.json").exists()
+    assert not (tmp_path / "Q99999.json").exists()
+
+
+def test_parse_skips_unresolved_accessions(
+    tmp_path,
+    uniprot_record,
+) -> None:
+    path = tmp_path / "P12345.json"
+    path.write_text(
+        json.dumps(uniprot_record),
+        encoding="utf-8",
+    )
+
+    source = UniProtDataSource(
+        accessions=["P12345", "Q99999"],
+        raw_dir=tmp_path,
+    )
+
+    source.unresolved_accessions = ["Q99999"]
+
+    records = source._parse()
+
+    assert len(records) == 1
+    assert records[0]["primaryAccession"] == "P12345"
