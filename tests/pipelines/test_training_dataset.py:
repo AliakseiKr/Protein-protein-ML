@@ -1,0 +1,147 @@
+"""Tests for the complete training dataset pipeline."""
+
+import pandas as pd
+import pytest
+
+from protein_graph.pipelines.training_dataset import TrainingDatasetPipeline
+
+
+class FakeMapper:
+    def map(self, interactions: pd.DataFrame) -> pd.DataFrame:
+        mapped = interactions.copy()
+        mapped["mapping_complete"] = (
+            mapped["protein_a_id"].notna()
+            & mapped["protein_b_id"].notna()
+        )
+        return mapped
+
+    def coverage(self, mapped: pd.DataFrame) -> dict:
+        complete = int(mapped["mapping_complete"].sum())
+
+        return {
+            "total_rows": len(mapped),
+            "fully_mapped_rows": complete,
+            "partially_mapped_rows": 0,
+            "unmapped_rows": len(mapped) - complete,
+            "fully_mapped_percentage": (
+                complete / len(mapped) * 100
+                if len(mapped)
+                else 0.0
+            ),
+        }
+
+
+class FakeProteinFeaturePipeline:
+    def build(
+        self,
+        accessions,
+        force_download=False,
+    ) -> pd.DataFrame:
+        rows = []
+
+        for accession in accessions:
+            rows.append(
+                {
+                    "protein_id": accession,
+                    "protein_length": 100,
+                    "hydrophobic_fraction": 0.4,
+                    "charged_fraction": 0.2,
+                    "positive_fraction": 0.1,
+                    "negative_fraction": 0.1,
+                    "taxon_id": 10116,
+                }
+            )
+
+        return pd.DataFrame(rows)
+
+
+class FakePairFeaturePipeline:
+    def build(
+        self,
+        interactions,
+        protein_features,
+    ) -> pd.DataFrame:
+        return interactions.merge(
+            protein_features.add_prefix("a_"),
+            left_on="protein_a_id",
+            right_on="a_protein_id",
+        ).merge(
+            protein_features.add_prefix("b_"),
+            left_on="protein_b_id",
+            right_on="b_protein_id",
+        )
+
+
+def test_build_creates_complete_dataset() -> None:
+    interactions = pd.DataFrame(
+        [
+            {
+                "protein_a_id": "P1",
+                "protein_b_id": "P2",
+            },
+            {
+                "protein_a_id": "P2",
+                "protein_b_id": "P3",
+            },
+        ]
+    )
+
+    pipeline = TrainingDatasetPipeline(
+        mapper=FakeMapper(),
+        protein_feature_pipeline=FakeProteinFeaturePipeline(),
+        pair_feature_pipeline=FakePairFeaturePipeline(),
+    )
+
+    dataset, report = pipeline.build(interactions)
+
+    assert len(dataset) == 2
+    assert report["unique_uniprot_accessions"] == 3
+    assert report["pair_feature_rows"] == 2
+
+
+def test_collect_accessions_deduplicates_ids() -> None:
+    interactions = pd.DataFrame(
+        {
+            "protein_a_id": ["P1", "P2"],
+            "protein_b_id": ["P2", "P1"],
+        }
+    )
+
+    accessions = TrainingDatasetPipeline._collect_accessions(
+        interactions
+    )
+
+    assert accessions == ["P1", "P2"]
+
+
+def test_build_rejects_no_complete_pairs() -> None:
+    interactions = pd.DataFrame(
+        [
+            {
+                "protein_a_id": None,
+                "protein_b_id": None,
+            }
+        ]
+    )
+
+    pipeline = TrainingDatasetPipeline(
+        mapper=FakeMapper(),
+        protein_feature_pipeline=FakeProteinFeaturePipeline(),
+        pair_feature_pipeline=FakePairFeaturePipeline(),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="No completely mapped",
+    ):
+        pipeline.build(interactions)
+
+
+def test_repr() -> None:
+    pipeline = TrainingDatasetPipeline(
+        mapper=FakeMapper(),
+        protein_feature_pipeline=FakeProteinFeaturePipeline(),
+        pair_feature_pipeline=FakePairFeaturePipeline(),
+    )
+
+    assert repr(pipeline) == "TrainingDatasetPipeline()"
