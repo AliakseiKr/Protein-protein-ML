@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ class UniProtDataSource(BaseDataSource):
     """Download and normalize UniProtKB protein records."""
 
     BASE_URL = "https://rest.uniprot.org/uniprotkb"
+    BATCH_SIZE = 100
 
     def __init__(
         self,
@@ -38,38 +40,93 @@ class UniProtDataSource(BaseDataSource):
         self.timeout = timeout
 
     def _download(self, force: bool = False) -> None:
-        """Download one JSON record for each UniProt accession."""
-        for accession in self.accessions:
-            destination = self._record_path(accession)
+        """Download UniProt records in batches and cache them separately."""
+        missing_accessions = [
+            accession
+            for accession in self.accessions
+            if force or not self._record_path(accession).exists()
+        ]
 
-            if destination.exists() and not force:
-                continue
+        if not missing_accessions:
+            return
 
-            url = f"{self.BASE_URL}/{accession}.json"
+        for batch in self._iter_batches(
+            missing_accessions,
+            size=self.BATCH_SIZE,
+        ):
+            records = self._download_batch(batch)
 
-            try:
-                response = requests.get(
-                    url,
-                    timeout=self.timeout,
-                    headers={"Accept": "application/json"},
-                )
-                response.raise_for_status()
-            except requests.RequestException as error:
+            records_by_accession = {
+                record["primaryAccession"]: record
+                for record in records
+                if record.get("primaryAccession")
+            }
+
+            unresolved = set(batch) - set(records_by_accession)
+
+            if unresolved:
                 raise RuntimeError(
-                    f"Failed to download UniProt accession {accession}."
-                ) from error
+                    "UniProt did not return records for accessions: "
+                    f"{sorted(unresolved)}"
+                )
 
-            try:
-                record = response.json()
-            except requests.JSONDecodeError as error:
-                raise ValueError(
-                    f"UniProt returned invalid JSON for {accession}."
-                ) from error
+            for accession in batch:
+                record = records_by_accession[accession]
+                destination = self._record_path(accession)
 
-            destination.write_text(
-                json.dumps(record, indent=2),
-                encoding="utf-8",
+                destination.write_text(
+                    json.dumps(record, indent=2),
+                    encoding="utf-8",
+                )
+
+    def _download_batch(
+        self,
+        accessions: list[str],
+    ) -> list[dict[str, Any]]:
+        """Download multiple UniProtKB records in one request."""
+        query = " OR ".join(
+            f"accession:{accession}"
+            for accession in accessions
+        )
+
+        url = f"{self.BASE_URL}/search"
+
+        try:
+            response = requests.get(
+                url,
+                params={
+                    "query": f"({query})",
+                    "format": "json",
+                    "size": len(accessions),
+                },
+                timeout=self.timeout,
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "ProteinGraph/0.1",
+                },
             )
+            response.raise_for_status()
+        except requests.RequestException as error:
+            raise RuntimeError(
+                "Failed to download UniProt batch containing "
+                f"{len(accessions)} accessions."
+            ) from error
+
+        try:
+            payload = response.json()
+        except requests.JSONDecodeError as error:
+            raise ValueError(
+                "UniProt returned invalid JSON for a batch request."
+            ) from error
+
+        results = payload.get("results")
+
+        if not isinstance(results, list):
+            raise ValueError(
+                "UniProt batch response does not contain a results list."
+            )
+
+        return results
 
     def _parse(self) -> list[dict[str, Any]]:
         """Read cached UniProt JSON records."""
@@ -98,7 +155,7 @@ class UniProtDataSource(BaseDataSource):
         self,
         records: list[dict[str, Any]],
     ) -> pd.DataFrame:
-        """Normalize UniProt records into a protein table."""
+        """Normalize UniProt records into a canonical protein table."""
         normalized = [
             self._normalize_record(record)
             for record in records
@@ -132,10 +189,12 @@ class UniProtDataSource(BaseDataSource):
             features,
             feature_types={"Signal"},
         )
+
         transmembrane_regions = self._extract_feature_ranges(
             features,
             feature_types={"Transmembrane"},
         )
+
         domains = self._extract_feature_descriptions(
             features,
             feature_types={"Domain"},
@@ -144,14 +203,19 @@ class UniProtDataSource(BaseDataSource):
         return {
             "protein_id": accession,
             "entry_name": record.get("uniProtkbId"),
-            "reviewed": record.get("entryType") == "UniProtKB reviewed (Swiss-Prot)",
+            "reviewed": (
+                record.get("entryType")
+                == "UniProtKB reviewed (Swiss-Prot)"
+            ),
             "gene_name": self._extract_gene_name(record),
             "protein_name": self._extract_protein_name(record),
             "organism": organism.get("scientificName"),
             "taxon_id": organism.get("taxonId"),
             "sequence": sequence,
             "protein_length": len(sequence),
-            "localization_terms": self._extract_localization_terms(record),
+            "localization_terms": self._extract_localization_terms(
+                record
+            ),
             "domains": domains,
             "domain_count": len(domains),
             "has_signal_peptide": bool(signal_peptides),
@@ -159,9 +223,15 @@ class UniProtDataSource(BaseDataSource):
             "signal_peptide_length": self._total_feature_length(
                 signal_peptides
             ),
-            "has_transmembrane_region": bool(transmembrane_regions),
-            "transmembrane_region_count": len(transmembrane_regions),
-            "transmembrane_region_ranges": transmembrane_regions,
+            "has_transmembrane_region": bool(
+                transmembrane_regions
+            ),
+            "transmembrane_region_count": len(
+                transmembrane_regions
+            ),
+            "transmembrane_region_ranges": (
+                transmembrane_regions
+            ),
             "interpro_ids": self._extract_cross_references(
                 record,
                 database="InterPro",
@@ -177,21 +247,39 @@ class UniProtDataSource(BaseDataSource):
         }
 
     def _record_path(self, accession: str) -> Path:
+        """Return the local cache path for one accession."""
         return self.raw_dir / f"{accession}.json"
 
     @staticmethod
-    def _extract_gene_name(record: dict[str, Any]) -> str | None:
+    def _iter_batches(
+        values: list[str],
+        size: int,
+    ) -> Iterator[list[str]]:
+        """Split accession identifiers into fixed-size batches."""
+        if size <= 0:
+            raise ValueError("Batch size must be greater than zero.")
+
+        for start in range(0, len(values), size):
+            yield values[start : start + size]
+
+    @staticmethod
+    def _extract_gene_name(
+        record: dict[str, Any],
+    ) -> str | None:
         genes = record.get("genes", [])
 
         for gene in genes:
             value = gene.get("geneName", {}).get("value")
+
             if value:
                 return value
 
         return None
 
     @staticmethod
-    def _extract_protein_name(record: dict[str, Any]) -> str | None:
+    def _extract_protein_name(
+        record: dict[str, Any],
+    ) -> str | None:
         description = record.get("proteinDescription", {})
 
         recommended = description.get("recommendedName", {})
@@ -200,7 +288,10 @@ class UniProtDataSource(BaseDataSource):
         if full_name:
             return full_name
 
-        submission_names = description.get("submissionNames", [])
+        submission_names = description.get(
+            "submissionNames",
+            [],
+        )
 
         if submission_names:
             return (
@@ -218,11 +309,20 @@ class UniProtDataSource(BaseDataSource):
         terms = set()
 
         for comment in record.get("comments", []):
-            if comment.get("commentType") != "SUBCELLULAR LOCATION":
+            if (
+                comment.get("commentType")
+                != "SUBCELLULAR LOCATION"
+            ):
                 continue
 
-            for item in comment.get("subcellularLocations", []):
-                value = item.get("location", {}).get("value")
+            for item in comment.get(
+                "subcellularLocations",
+                [],
+            ):
+                value = (
+                    item.get("location", {})
+                    .get("value")
+                )
 
                 if value:
                     terms.add(value)
@@ -260,14 +360,21 @@ class UniProtDataSource(BaseDataSource):
                 continue
 
             location = feature.get("location", {})
-            start = cls._extract_position(location.get("start"))
-            end = cls._extract_position(location.get("end"))
+
+            start = cls._extract_position(
+                location.get("start")
+            )
+            end = cls._extract_position(
+                location.get("end")
+            )
 
             if start is not None and end is not None:
-                ranges.append({
-                    "start": start,
-                    "end": end,
-                })
+                ranges.append(
+                    {
+                        "start": start,
+                        "end": end,
+                    }
+                )
 
         return ranges
 
@@ -305,7 +412,10 @@ class UniProtDataSource(BaseDataSource):
             "uniProtKBCrossReferences",
             [],
         ):
-            if cross_reference.get("database") != database:
+            if (
+                cross_reference.get("database")
+                != database
+            ):
                 continue
 
             identifier = cross_reference.get("id")

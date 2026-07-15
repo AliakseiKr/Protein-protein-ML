@@ -205,3 +205,99 @@ def test_repr(tmp_path) -> None:
 
     assert "UniProtDataSource" in representation
     assert "accessions=2" in representation
+
+def test_iter_batches() -> None:
+    batches = list(
+        UniProtDataSource._iter_batches(
+            ["P1", "P2", "P3", "P4", "P5"],
+            size=2,
+        )
+    )
+
+    assert batches == [
+        ["P1", "P2"],
+        ["P3", "P4"],
+        ["P5"],
+    ]
+
+
+def test_download_uses_batch_request(
+    monkeypatch,
+    tmp_path,
+    uniprot_record,
+) -> None:
+    source = UniProtDataSource(
+        accessions=["P12345"],
+        raw_dir=tmp_path,
+    )
+
+    calls = []
+
+    def fake_download_batch(accessions):
+        calls.append(accessions)
+        return [uniprot_record]
+
+    monkeypatch.setattr(
+        source,
+        "_download_batch",
+        fake_download_batch,
+    )
+
+    source._download()
+
+    assert calls == [["P12345"]]
+    assert (tmp_path / "P12345.json").exists()
+
+
+def test_download_skips_cached_records(
+    monkeypatch,
+    tmp_path,
+    uniprot_record,
+) -> None:
+    cached_path = tmp_path / "P12345.json"
+    cached_path.write_text(
+        json.dumps(uniprot_record),
+        encoding="utf-8",
+    )
+
+    source = UniProtDataSource(
+        accessions=["P12345"],
+        raw_dir=tmp_path,
+    )
+
+    def fail_if_called(accessions):
+        raise AssertionError("Batch download should not be called.")
+
+    monkeypatch.setattr(
+        source,
+        "_download_batch",
+        fail_if_called,
+    )
+
+    source._download()
+
+
+def test_download_rejects_missing_batch_results(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    source = UniProtDataSource(
+        accessions=["P12345", "Q99999"],
+        raw_dir=tmp_path,
+    )
+
+    monkeypatch.setattr(
+        source,
+        "_download_batch",
+        lambda accessions: [
+            {
+                "primaryAccession": "P12345",
+            }
+        ],
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="did not return records",
+    ):
+        source._download()
