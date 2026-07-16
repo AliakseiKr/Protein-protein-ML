@@ -118,7 +118,15 @@ def test_normalize_record(
     assert protein["interpro_ids"] == ["IPR000001"]
     assert protein["pfam_ids"] == ["PF00001"]
     assert protein["refseq_ids"] == ["NP_000001.1"]
-
+    assert protein["domain_annotations"] == [
+        {
+            "domain_id": "Example domain",
+            "description": "Example domain",
+            "start": 4,
+            "end": 10,
+            "source": "UniProt",
+        }
+    ]
 
 def test_load_from_cached_record(
     tmp_path,

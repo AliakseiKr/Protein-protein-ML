@@ -194,6 +194,10 @@ class UniProtDataSource(BaseDataSource):
         organism = record.get("organism", {})
         features = record.get("features", [])
 
+        domain_annotations = self._extract_domain_annotations(
+            features
+        )
+
         signal_peptides = self._extract_feature_ranges(
             features,
             feature_types={"Signal"},
@@ -226,6 +230,7 @@ class UniProtDataSource(BaseDataSource):
                 record
             ),
             "domains": domains,
+            "domain_annotations": domain_annotations,
             "domain_count": len(domains),
             "has_signal_peptide": bool(signal_peptides),
             "signal_peptide_ranges": signal_peptides,
@@ -362,6 +367,7 @@ class UniProtDataSource(BaseDataSource):
         features: list[dict[str, Any]],
         feature_types: set[str],
     ) -> list[dict[str, int]]:
+        """Extract coordinate ranges for selected feature types."""
         ranges = []
 
         for feature in features:
@@ -386,6 +392,44 @@ class UniProtDataSource(BaseDataSource):
                 )
 
         return ranges
+
+    @classmethod
+    def _extract_domain_annotations(
+        cls,
+        features: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Extract domain descriptions and coordinates."""
+        annotations = []
+
+        for feature in features:
+            if feature.get("type") != "Domain":
+                continue
+
+            location = feature.get("location", {})
+
+            start = cls._extract_position(
+                location.get("start")
+            )
+            end = cls._extract_position(
+                location.get("end")
+            )
+
+            if start is None or end is None:
+                continue
+
+            annotations.append(
+                {
+                    "domain_id": feature.get("description"),
+                    "description": feature.get("description"),
+                    "start": start,
+                    "end": end,
+                    "source": "UniProt",
+                }
+            )
+
+        return annotations
+
+
 
     @staticmethod
     def _extract_position(
