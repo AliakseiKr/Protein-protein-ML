@@ -1,7 +1,11 @@
-"""Base classes for ProteinGraph feature extractors."""
+"""Base classes and types for ProteinGraph feature extractors."""
 
 from abc import ABC, abstractmethod
 from typing import Any
+
+
+FeatureValue = int | float
+FeatureMap = dict[str, FeatureValue]
 
 
 class FeatureExtractor(ABC):
@@ -10,6 +14,9 @@ class FeatureExtractor(ABC):
     name: str = "base"
 
     @abstractmethod
-    def extract(self, protein: dict[str, Any]) -> dict[str, Any]:
+    def extract(
+        self,
+        protein: dict[str, Any],
+    ) -> dict[str, Any]:
         """Extract features from a single protein."""
-        pass
+        raise NotImplementedError
