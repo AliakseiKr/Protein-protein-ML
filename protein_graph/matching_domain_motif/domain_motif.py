@@ -19,11 +19,15 @@ class DetectedDomain:
         if not self.domain_class:
             raise ValueError("domain_class must not be empty")
 
-        if self.start < 0:
-            raise ValueError("domain start must be >= 0")
+        if self.start < 1:
+            raise ValueError(
+                "domain start must be >= 1 (1-based inclusive)"
+            )
 
-        if self.end <= self.start:
-            raise ValueError("domain end must be greater than start")
+        if self.end < self.start:
+            raise ValueError(
+                "domain end must be greater than or equal to start"
+            )
 
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("domain confidence must be between 0 and 1")
@@ -179,8 +183,11 @@ class KnownMotifScanner:
 
             for match in overlapping_pattern.finditer(sequence):
                 matched_sequence = match.group(1)
-                start = match.start()
-                end = start + len(matched_sequence)
+                # Convert Python's 0-based half-open match indices to the
+                # repository's canonical biological 1-based inclusive
+                # coordinates (see entities.region.SequenceRegion).
+                start = match.start() + 1
+                end = start + len(matched_sequence) - 1
 
                 motif_score = 1.0
                 combined_score = domain.confidence * motif_score

@@ -8,30 +8,9 @@ from protein_graph.features.motif_properties_of_certain_domain.sequence_features
     AMINO_ACID_GROUPS,
     MotifSequenceFeatureExtractor,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class SequenceRegion:
-    start: int
-    end: int
-
-    def __post_init__(self) -> None:
-        if self.start < 0:
-            raise ValueError("start must be >= 0")
-
-        if self.end <= self.start:
-            raise ValueError(
-                "end must be greater than start"
-            )
-
-    def overlaps(
-        self,
-        other: SequenceRegion,
-    ) -> bool:
-        return (
-            self.start < other.end
-            and other.start < self.end
-        )
+from protein_graph.features.motif_properties_of_certain_domain.window import (
+    WindowInterval,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,9 +51,9 @@ class MotifContextFeatureExtractor:
         protein_sequence: str,
         motif_start: int,
         motif_end: int,
-        domain_regions: Iterable[SequenceRegion] = (),
+        domain_regions: Iterable[WindowInterval] = (),
         transmembrane_regions: Iterable[
-            SequenceRegion
+            WindowInterval
         ] = (),
     ) -> dict[str, float | int]:
         protein = self._normalize(protein_sequence)
@@ -94,7 +73,7 @@ class MotifContextFeatureExtractor:
                 "motif_end exceeds protein length"
             )
 
-        motif_region = SequenceRegion(
+        motif_region = WindowInterval(
             motif_start,
             motif_end,
         )

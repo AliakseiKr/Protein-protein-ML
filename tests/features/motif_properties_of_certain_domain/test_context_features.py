@@ -1,7 +1,9 @@
 from protein_graph.features.motif_properties_of_certain_domain.context_features import (
     MotifContextConfig,
     MotifContextFeatureExtractor,
-    SequenceRegion,
+)
+from protein_graph.features.motif_properties_of_certain_domain.window import (
+    WindowInterval,
 )
 
 
@@ -34,7 +36,7 @@ def test_detects_domain_overlap() -> None:
         motif_start=5,
         motif_end=13,
         domain_regions=(
-            SequenceRegion(
+            WindowInterval(
                 start=3,
                 end=10,
             ),

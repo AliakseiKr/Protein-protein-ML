@@ -4,7 +4,9 @@ from typing import Iterable
 
 from protein_graph.features.motif_properties_of_certain_domain.context_features import (
     MotifContextFeatureExtractor,
-    SequenceRegion,
+)
+from protein_graph.features.motif_properties_of_certain_domain.window import (
+    WindowInterval,
 )
 from protein_graph.features.motif_properties_of_certain_domain.sequence_features import (
     MotifSequenceFeatureExtractor,
@@ -56,9 +58,9 @@ class CombinedMotifFeatureExtractor:
         protein_sequence: str,
         candidate_start: int,
         candidate_end: int,
-        domain_regions: Iterable[SequenceRegion] = (),
+        domain_regions: Iterable[WindowInterval] = (),
         transmembrane_regions: Iterable[
-            SequenceRegion
+            WindowInterval
         ] = (),
     ) -> dict[str, float | int]:
         candidate_sequence = protein_sequence[
