@@ -3,7 +3,8 @@
 import pandas as pd
 import pytest
 
-from protein_graph.pipelines import PairFeaturePipeline
+from protein_graph.features.sequence.constants import AMINO_ACIDS
+from protein_graph.pipelines import PairFeaturePipeline, ProteinFeaturePipeline
 
 
 def make_interactions() -> pd.DataFrame:
@@ -104,6 +105,159 @@ def test_unmapped_proteins_are_removed() -> None:
     )
 
     assert pairs.empty
+
+
+def test_same_taxonomy_is_unknown_when_taxon_id_missing() -> None:
+    features = make_protein_features()
+    features.loc[
+        features["protein_id"] == "P1", "taxon_id"
+    ] = None
+
+    pairs = PairFeaturePipeline().build(
+        interactions=make_interactions(),
+        protein_features=features,
+    )
+
+    assert pd.isna(pairs.iloc[0]["same_taxonomy"])
+
+
+def test_same_taxonomy_is_zero_for_different_known_taxa() -> None:
+    features = make_protein_features()
+    features.loc[
+        features["protein_id"] == "P2", "taxon_id"
+    ] = 9606
+
+    pairs = PairFeaturePipeline().build(
+        interactions=make_interactions(),
+        protein_features=features,
+    )
+
+    assert pairs.iloc[0]["same_taxonomy"] == 0
+
+
+def test_model_features_retains_approved_columns() -> None:
+    pairs = PairFeaturePipeline().build(
+        interactions=make_interactions(),
+        protein_features=make_protein_features(),
+    )
+
+    model_features = PairFeaturePipeline.select_model_features(pairs)
+
+    assert "same_taxonomy" in model_features.columns
+    assert "protein_length_difference" in model_features.columns
+    assert "hydrophobic_fraction_difference" in model_features.columns
+    assert "charged_fraction_difference" in model_features.columns
+    assert "positive_negative_balance" in model_features.columns
+    assert "a_hydrophobic_fraction" in model_features.columns
+    assert "b_hydrophobic_fraction" in model_features.columns
+    assert "a_protein_length" in model_features.columns
+    assert "b_protein_length" in model_features.columns
+
+
+def test_model_features_excludes_unknown_new_columns() -> None:
+    pairs = PairFeaturePipeline().build(
+        interactions=make_interactions(),
+        protein_features=make_protein_features(),
+    )
+    pairs = pairs.assign(
+        totally_new_column_nobody_reviewed="unreviewed"
+    )
+
+    model_features = PairFeaturePipeline.select_model_features(pairs)
+
+    assert (
+        "totally_new_column_nobody_reviewed"
+        not in model_features.columns
+    )
+
+
+def test_model_features_excludes_provenance_columns() -> None:
+    pairs = PairFeaturePipeline().build(
+        interactions=make_interactions(),
+        protein_features=make_protein_features(),
+    )
+    pairs = pairs.assign(
+        score=9.9,
+        publication_id="PMID:12345",
+        biogrid_interaction_id="999",
+        experimental_system="Two-hybrid",
+        throughput="High Throughput",
+    )
+
+    model_features = PairFeaturePipeline.select_model_features(pairs)
+
+    assert "score" not in model_features.columns
+    assert "publication_id" not in model_features.columns
+    assert "biogrid_interaction_id" not in model_features.columns
+    assert "experimental_system" not in model_features.columns
+    assert "throughput" not in model_features.columns
+
+
+def test_model_features_excludes_identity_columns() -> None:
+    pairs = PairFeaturePipeline().build(
+        interactions=make_interactions(),
+        protein_features=make_protein_features(),
+    )
+
+    model_features = PairFeaturePipeline.select_model_features(pairs)
+
+    assert "a_protein_id" not in model_features.columns
+    assert "b_protein_id" not in model_features.columns
+    assert "protein_a_id" not in model_features.columns
+    assert "protein_b_id" not in model_features.columns
+    assert "uniprot_pair_id" not in model_features.columns
+    assert "a_taxon_id" not in model_features.columns
+    assert "b_taxon_id" not in model_features.columns
+
+
+def test_model_feature_columns_matches_live_extractor_output() -> None:
+    """MODEL_FEATURE_COLUMNS' a_/b_ sequence-feature portion must exactly
+    match what ProteinFeaturePipeline's currently configured extractors
+    actually produce.
+
+    This guards against drift in both directions: a new extractor
+    feature that was never added to the allowlist (would silently be
+    dropped from any model input, not a leakage risk but a coverage
+    regression), and a stale allowlist entry no longer produced by any
+    extractor (dead entry, or worse - a sign the allowlist was hand-
+    edited out of sync with the real pipeline).
+
+    Reads ProteinFeaturePipeline().extractors directly, so it tracks
+    whatever extractors are actually configured today rather than a
+    second hardcoded extractor list that could itself drift.
+    """
+    live_columns: set[str] = set()
+
+    for extractor in ProteinFeaturePipeline().extractors:
+        live_columns.update(
+            extractor.extract({"sequence": AMINO_ACIDS}).keys()
+        )
+
+    allowlist = PairFeaturePipeline.MODEL_FEATURE_COLUMNS
+
+    a_prefixed = {
+        name[len("a_"):]
+        for name in allowlist
+        if name.startswith("a_")
+    }
+    b_prefixed = {
+        name[len("b_"):]
+        for name in allowlist
+        if name.startswith("b_")
+    }
+
+    assert a_prefixed == live_columns, (
+        "a_-prefixed portion of MODEL_FEATURE_COLUMNS diverges from "
+        "ProteinFeaturePipeline's live extractor output.\n"
+        f"Missing from allowlist: {sorted(live_columns - a_prefixed)}\n"
+        f"Stale in allowlist: {sorted(a_prefixed - live_columns)}"
+    )
+    assert b_prefixed == live_columns, (
+        "b_-prefixed portion of MODEL_FEATURE_COLUMNS diverges from "
+        "ProteinFeaturePipeline's live extractor output.\n"
+        f"Missing from allowlist: {sorted(live_columns - b_prefixed)}\n"
+        f"Stale in allowlist: {sorted(b_prefixed - live_columns)}"
+    )
 
 
 def test_repr() -> None:
