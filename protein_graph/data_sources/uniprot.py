@@ -165,24 +165,46 @@ class UniProtDataSource(BaseDataSource):
         records: list[dict[str, Any]],
     ) -> pd.DataFrame:
         """Normalize UniProt records into a canonical protein table."""
-        normalized = [
-            self._normalize_record(record)
-            for record in records
-        ]
+        normalized = []
+
+        for record in records:
+            normalized_record = self._normalize_record(record)
+
+            if normalized_record is not None:
+                normalized.append(normalized_record)
 
         return pd.DataFrame(normalized)
 
     def _normalize_record(
         self,
         record: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Normalize one UniProtKB JSON record."""
+    ) -> dict[str, Any] | None:
+        """Normalize one UniProtKB JSON record.
+
+        Returns ``None`` (and records the accession as unresolved) for a
+        well-formed "Inactive" UniProt response - e.g. an accession
+        deleted or merged upstream after BioGRID's own cross-reference was
+        curated. This is expected, ordinary churn in a real accession
+        namespace at global scale, not a malformed response: it is
+        recorded the same way as any other accession UniProt did not
+        return a usable record for, rather than crashing the whole batch.
+        A record that claims to be active but is missing its sequence for
+        an unexplained reason still raises, since that indicates an
+        unexpected response shape worth investigating rather than silently
+        discarding.
+        """
         accession = record.get("primaryAccession")
 
         if not accession:
             raise ValueError(
                 "UniProt record is missing primaryAccession."
             )
+
+        if record.get("entryType") == "Inactive":
+            if accession not in self.unresolved_accessions:
+                self.unresolved_accessions.append(accession)
+
+            return None
 
         sequence = record.get("sequence", {}).get("value", "")
 

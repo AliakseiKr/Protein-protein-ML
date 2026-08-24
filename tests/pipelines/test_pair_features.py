@@ -135,6 +135,50 @@ def test_same_taxonomy_is_zero_for_different_known_taxa() -> None:
     assert pairs.iloc[0]["same_taxonomy"] == 0
 
 
+def test_same_taxonomy_is_unknown_when_b_taxon_id_missing() -> None:
+    features = make_protein_features()
+    features.loc[
+        features["protein_id"] == "P2", "taxon_id"
+    ] = None
+
+    pairs = PairFeaturePipeline().build(
+        interactions=make_interactions(),
+        protein_features=features,
+    )
+
+    assert pd.isna(pairs.iloc[0]["same_taxonomy"])
+
+
+def test_same_taxonomy_is_unknown_when_both_taxon_ids_missing() -> None:
+    """Unknown must never collapse to 0 ("definitely different taxa")."""
+    features = make_protein_features()
+    features["taxon_id"] = None
+
+    pairs = PairFeaturePipeline().build(
+        interactions=make_interactions(),
+        protein_features=features,
+    )
+
+    assert pd.isna(pairs.iloc[0]["same_taxonomy"])
+
+
+def test_cross_species_host_pathogen_pair_is_retained_not_filtered() -> None:
+    """Taxonomy must not become a hidden eligibility filter: a host-pathogen
+    pair (human vs. SARS-CoV-2) gets same_taxonomy=0 as a feature value, but
+    the pair itself is never dropped because of it."""
+    features = make_protein_features()
+    features.loc[features["protein_id"] == "P1", "taxon_id"] = 9606
+    features.loc[features["protein_id"] == "P2", "taxon_id"] = 2697049
+
+    pairs = PairFeaturePipeline().build(
+        interactions=make_interactions(),
+        protein_features=features,
+    )
+
+    assert len(pairs) == 1
+    assert pairs.iloc[0]["same_taxonomy"] == 0
+
+
 def test_model_features_retains_approved_columns() -> None:
     pairs = PairFeaturePipeline().build(
         interactions=make_interactions(),
@@ -171,6 +215,23 @@ def test_model_features_excludes_unknown_new_columns() -> None:
     )
 
 
+def test_missing_approved_columns_are_absent_not_fabricated() -> None:
+    """If an approved MODEL_FEATURE_COLUMNS entry is simply absent from
+    the input (e.g. an extractor was removed, or a caller passes a
+    hand-built table), select_model_features must not silently invent a
+    placeholder value (0/NaN) for it - the column must just be missing
+    from the output, not present-but-wrong."""
+    pairs = pd.DataFrame(
+        [{"protein_a_id": "P1", "protein_b_id": "P2", "same_taxonomy": 1}]
+    )
+
+    model_features = PairFeaturePipeline.select_model_features(pairs)
+
+    assert list(model_features.columns) == ["same_taxonomy"]
+    assert "protein_length_difference" not in model_features.columns
+    assert "a_protein_length" not in model_features.columns
+
+
 def test_model_features_excludes_provenance_columns() -> None:
     pairs = PairFeaturePipeline().build(
         interactions=make_interactions(),
@@ -191,6 +252,29 @@ def test_model_features_excludes_provenance_columns() -> None:
     assert "biogrid_interaction_id" not in model_features.columns
     assert "experimental_system" not in model_features.columns
     assert "throughput" not in model_features.columns
+
+
+def test_model_features_excludes_biogrid_pair_acceptance_provenance() -> None:
+    """Minimal provenance emitted by BioGRIDPairAcceptancePipeline
+    (representative_* / biogrid_release_version) answers "why was this
+    pair admitted" - it must never leak into the model feature matrix."""
+    pairs = PairFeaturePipeline().build(
+        interactions=make_interactions(),
+        protein_features=make_protein_features(),
+    )
+    pairs = pairs.assign(
+        representative_biogrid_interaction_id="999",
+        representative_experimental_system="Two-hybrid",
+        representative_publication_id="PMID:12345",
+        biogrid_release_version="5.0.260",
+    )
+
+    model_features = PairFeaturePipeline.select_model_features(pairs)
+
+    assert "representative_biogrid_interaction_id" not in model_features.columns
+    assert "representative_experimental_system" not in model_features.columns
+    assert "representative_publication_id" not in model_features.columns
+    assert "biogrid_release_version" not in model_features.columns
 
 
 def test_model_features_excludes_identity_columns() -> None:

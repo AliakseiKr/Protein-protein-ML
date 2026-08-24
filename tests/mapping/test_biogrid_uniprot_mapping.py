@@ -75,6 +75,54 @@ def test_builds_undirected_pair_id() -> None:
     )
 
 
+def test_different_source_accession_shapes_yield_the_same_final_pair_id() -> (
+    None
+):
+    """Canonical pair identity must be built from the FINAL resolved
+    UniProt IDs, not from how the raw source field happened to be
+    formatted. One row resolves protein A directly; another row resolves
+    the same final accession through a multi-value fallback string - both
+    must land on the identical uniprot_pair_id."""
+    interactions = pd.DataFrame(
+        {
+            "swissprot_accessions_a": ["P12345", None],
+            "swissprot_accessions_b": ["Q11111", "Q11111|Q99999"],
+            "trembl_accessions_a": [None, "P12345"],
+            "trembl_accessions_b": [None, None],
+        }
+    )
+
+    mapped = BioGRIDUniProtMapper().map(interactions)
+
+    assert mapped.iloc[0]["protein_a_id"] == mapped.iloc[1]["protein_a_id"]
+    assert mapped.iloc[0]["protein_b_id"] == mapped.iloc[1]["protein_b_id"]
+    assert (
+        mapped.iloc[0]["uniprot_pair_id"]
+        == mapped.iloc[1]["uniprot_pair_id"]
+    )
+
+
+def test_self_interaction_produces_a_stable_pair_id() -> None:
+    """A homodimer (A-A) is a real, valid BioGRID record. It must resolve
+    to one deterministic pair id rather than being silently dropped or
+    erroring."""
+    interactions = pd.DataFrame(
+        {
+            "swissprot_accessions_a": ["P12345"],
+            "swissprot_accessions_b": ["P12345"],
+            "trembl_accessions_a": [None],
+            "trembl_accessions_b": [None],
+        }
+    )
+
+    mapped = BioGRIDUniProtMapper().map(interactions)
+
+    assert mapped.iloc[0]["protein_a_id"] == "P12345"
+    assert mapped.iloc[0]["protein_b_id"] == "P12345"
+    assert mapped.iloc[0]["uniprot_pair_id"] == "P12345--P12345"
+    assert mapped.iloc[0]["mapping_complete"]
+
+
 def test_coverage_statistics() -> None:
     interactions = pd.DataFrame(
         {

@@ -5,14 +5,13 @@ from protein_graph.data_sources.biogrid import BioGRIDDataSource
 
 def main() -> None:
     source = BioGRIDDataSource(
-        species="Rattus norvegicus",
-        taxonomy_id=10116,
         interaction_type="physical",
         raw_dir=Path("data/raw/biogrid"),
+        sample_limit=500,
     )
 
     print("=" * 80)
-    print("Loading BioGRID...")
+    print("Loading BioGRID-ALL (sample_limit=500)...")
     print("=" * 80)
 
     data = source.load()
@@ -24,6 +23,7 @@ def main() -> None:
 
     print(f"Rows: {len(data):,}")
     print(f"Columns: {len(data.columns)}")
+    print(f"Release version: {source.release_version}")
 
     print("\nColumns:")
     for column in data.columns:

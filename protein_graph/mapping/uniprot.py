@@ -28,48 +28,29 @@ class BioGRIDUniProtMapper:
 
         mapped = interactions.copy()
 
-        protein_a = mapped.apply(
-            lambda row: self._resolve_interactor(
-                swissprot=row["swissprot_accessions_a"],
-                trembl=row["trembl_accessions_a"],
-            ),
-            axis=1,
+        (
+            mapped["protein_a_id"],
+            mapped["protein_a_mapping_source"],
+        ) = self._resolve_column(
+            swissprot=mapped["swissprot_accessions_a"],
+            trembl=mapped["trembl_accessions_a"],
         )
-
-        protein_b = mapped.apply(
-            lambda row: self._resolve_interactor(
-                swissprot=row["swissprot_accessions_b"],
-                trembl=row["trembl_accessions_b"],
-            ),
-            axis=1,
+        (
+            mapped["protein_b_id"],
+            mapped["protein_b_mapping_source"],
+        ) = self._resolve_column(
+            swissprot=mapped["swissprot_accessions_b"],
+            trembl=mapped["trembl_accessions_b"],
         )
-
-        mapped["protein_a_id"] = [
-            result["accession"]
-            for result in protein_a
-        ]
-        mapped["protein_b_id"] = [
-            result["accession"]
-            for result in protein_b
-        ]
-
-        mapped["protein_a_mapping_source"] = [
-            result["source"]
-            for result in protein_a
-        ]
-        mapped["protein_b_mapping_source"] = [
-            result["source"]
-            for result in protein_b
-        ]
 
         mapped["mapping_complete"] = (
             mapped["protein_a_id"].notna()
             & mapped["protein_b_id"].notna()
         )
 
-        mapped["uniprot_pair_id"] = mapped.apply(
-            self._build_pair_id,
-            axis=1,
+        mapped["uniprot_pair_id"] = self._build_pair_id_vectorized(
+            mapped["protein_a_id"],
+            mapped["protein_b_id"],
         )
 
         return mapped
@@ -117,31 +98,38 @@ class BioGRIDUniProtMapper:
         }
 
     @classmethod
-    def _resolve_interactor(
+    def _resolve_column(
         cls,
-        swissprot: Any,
-        trembl: Any,
-    ) -> dict[str, str | None]:
-        swissprot_accession = cls._first_accession(swissprot)
+        swissprot: pd.Series,
+        trembl: pd.Series,
+    ) -> tuple[pd.Series, pd.Series]:
+        """Resolve one interactor side for an entire evidence table at once.
 
-        if swissprot_accession:
-            return {
-                "accession": swissprot_accession,
-                "source": "Swiss-Prot",
-            }
+        Uses ``Series.map`` (one scalar call per cell via a fast C-level
+        loop) rather than ``DataFrame.apply(axis=1)`` (which reconstructs a
+        full ``Series`` for every row). This matters once evidence tables
+        cover BioGRID-ALL rather than a single organism.
+        """
+        swissprot_accession = swissprot.map(cls._first_accession)
+        trembl_accession = trembl.map(cls._first_accession)
 
-        trembl_accession = cls._first_accession(trembl)
+        has_swissprot = swissprot_accession.notna()
+        has_trembl_only = ~has_swissprot & trembl_accession.notna()
 
-        if trembl_accession:
-            return {
-                "accession": trembl_accession,
-                "source": "TrEMBL",
-            }
+        accession = swissprot_accession.where(
+            has_swissprot,
+            trembl_accession,
+        )
 
-        return {
-            "accession": None,
-            "source": None,
-        }
+        source = pd.Series(
+            pd.NA,
+            index=swissprot.index,
+            dtype="object",
+        )
+        source[has_swissprot] = "Swiss-Prot"
+        source[has_trembl_only] = "TrEMBL"
+
+        return accession, source
 
     @staticmethod
     def _first_accession(value: Any) -> str | None:
@@ -165,15 +153,23 @@ class BioGRIDUniProtMapper:
         return accessions[0] if accessions else None
 
     @staticmethod
-    def _build_pair_id(row: pd.Series) -> str | None:
-        protein_a = row["protein_a_id"]
-        protein_b = row["protein_b_id"]
+    def _build_pair_id_vectorized(
+        protein_a_id: pd.Series,
+        protein_b_id: pd.Series,
+    ) -> pd.Series:
+        """Build the canonical undirected UniProt pair id for a whole table.
 
-        if pd.isna(protein_a) or pd.isna(protein_b):
-            return None
+        ``A--B`` and ``B--A`` must produce the same id, so each pair is
+        ordered lexicographically before joining.
+        """
+        a = protein_a_id.astype("string")
+        b = protein_b_id.astype("string")
 
-        first, second = sorted(
-            [str(protein_a), str(protein_b)]
-        )
+        missing = a.isna() | b.isna()
 
-        return f"{first}--{second}"
+        first = a.where(a <= b, b)
+        second = b.where(a <= b, a)
+
+        pair_id = first + "--" + second
+
+        return pair_id.mask(missing, other=None).astype("object")

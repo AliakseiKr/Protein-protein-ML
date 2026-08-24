@@ -163,3 +163,69 @@ def test_repr() -> None:
     builder = MotifDefinitionBuilder()
 
     assert repr(builder) == "MotifDefinitionBuilder()"
+
+
+def test_recognized_by_overrides_populate_empty_recognized_by() -> None:
+    """Real authoritative domain<->motif knowledge (e.g. ELM interaction
+    domains) must be able to fill recognized_by instead of it silently
+    defaulting to "recognized by nothing"."""
+    builder = MotifDefinitionBuilder()
+
+    definition = builder.build(
+        {
+            "motif_id": "CLV_NRD_NRD_1",
+            "motif_class": "Cleavage motif",
+            "pattern": "AAA",
+        },
+        recognized_by_overrides={"CLV_NRD_NRD_1": ("PF00675",)},
+    )
+
+    assert definition.recognized_by == ("PF00675",)
+
+
+def test_recognized_by_overrides_do_not_replace_explicit_value() -> None:
+    builder = MotifDefinitionBuilder()
+
+    definition = builder.build(
+        {
+            "motif_id": "TEST",
+            "motif_class": "Test motif",
+            "pattern": "AAA",
+            "recognized_by": ("SH3",),
+        },
+        recognized_by_overrides={"TEST": ("PF99999",)},
+    )
+
+    assert definition.recognized_by == ("SH3",)
+
+
+def test_recognized_by_overrides_missing_motif_id_stays_empty() -> None:
+    builder = MotifDefinitionBuilder()
+
+    definition = builder.build(
+        {
+            "motif_id": "UNMAPPED",
+            "motif_class": "Test motif",
+            "pattern": "AAA",
+        },
+        recognized_by_overrides={"OTHER_MOTIF": ("PF00675",)},
+    )
+
+    assert definition.recognized_by == ()
+
+
+def test_build_many_applies_recognized_by_overrides() -> None:
+    builder = MotifDefinitionBuilder()
+
+    definitions = builder.build_many(
+        [
+            {
+                "motif_id": "CLV_NRD_NRD_1",
+                "motif_class": "Cleavage motif",
+                "pattern": "AAA",
+            },
+        ],
+        recognized_by_overrides={"CLV_NRD_NRD_1": ("PF00675", "PF00082")},
+    )
+
+    assert definitions[0].recognized_by == ("PF00675", "PF00082")

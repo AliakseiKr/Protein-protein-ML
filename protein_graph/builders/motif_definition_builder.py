@@ -21,6 +21,10 @@ class MotifDefinitionBuilder:
     def build(
         self,
         record: Mapping[str, Any],
+        *,
+        recognized_by_overrides: (
+            Mapping[str, Iterable[str]] | None
+        ) = None,
     ) -> MotifDefinition:
         """Build one motif definition.
 
@@ -28,6 +32,14 @@ class MotifDefinitionBuilder:
         ----------
         record:
             Canonical motif-definition record.
+        recognized_by_overrides:
+            Optional ``motif_id -> recognizing domain identifiers`` lookup
+            (e.g. from
+            :func:`protein_graph.data_sources.elm_interaction_domains.build_recognized_by_map`),
+            applied only when ``record`` itself does not already specify a
+            non-empty ``recognized_by``. This is how real authoritative
+            domain<->motif knowledge reaches ``MotifDefinition`` instead of
+            the field silently defaulting to "recognized by nothing".
 
         Returns
         -------
@@ -47,13 +59,20 @@ class MotifDefinitionBuilder:
             "pattern",
         )
 
+        recognized_by = self._string_tuple(
+            record.get("recognized_by")
+        )
+
+        if not recognized_by and recognized_by_overrides is not None:
+            recognized_by = self._string_tuple(
+                recognized_by_overrides.get(motif_id)
+            )
+
         return MotifDefinition(
             motif_id=motif_id,
             motif_class=motif_class,
             pattern=pattern,
-            recognized_by=self._string_tuple(
-                record.get("recognized_by")
-            ),
+            recognized_by=recognized_by,
             interaction_role=self._optional_string(
                 record.get("interaction_role"),
                 field_name="interaction_role",
@@ -74,13 +93,20 @@ class MotifDefinitionBuilder:
     def build_many(
         self,
         records: Iterable[Mapping[str, Any]],
+        *,
+        recognized_by_overrides: (
+            Mapping[str, Iterable[str]] | None
+        ) = None,
     ) -> list[MotifDefinition]:
         """Build multiple unique motif definitions."""
         definitions: list[MotifDefinition] = []
         seen_ids: set[str] = set()
 
         for record in records:
-            definition = self.build(record)
+            definition = self.build(
+                record,
+                recognized_by_overrides=recognized_by_overrides,
+            )
 
             if definition.motif_id in seen_ids:
                 raise ValueError(

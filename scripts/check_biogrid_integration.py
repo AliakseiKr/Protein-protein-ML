@@ -2,11 +2,11 @@ from protein_graph.data_sources import BioGRIDDataSource
 
 
 def main() -> None:
-    loader = BioGRIDDataSource()
+    loader = BioGRIDDataSource(sample_limit=500)
 
     print(loader)
 
-    interactions = loader.fetch()
+    interactions = loader.load()
 
     print()
     print(interactions.head())

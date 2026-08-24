@@ -203,6 +203,51 @@ def test_missing_sequence_is_rejected(tmp_path) -> None:
         })
 
 
+def test_inactive_entry_is_skipped_not_rejected(tmp_path) -> None:
+    """A well-formed UniProt "Inactive" response (deleted/merged upstream)
+    is ordinary accession-namespace churn at global scale, not a malformed
+    record: it must be treated as unresolved, not crash the whole batch."""
+    source = UniProtDataSource(
+        accessions=["A0A021WWV8"],
+        raw_dir=tmp_path,
+    )
+
+    result = source._normalize_record({
+        "entryType": "Inactive",
+        "primaryAccession": "A0A021WWV8",
+        "inactiveReason": {
+            "inactiveReasonType": "DELETED",
+            "deletedReason": "Deleted from sequence source (EMBL)",
+        },
+    })
+
+    assert result is None
+    assert source.unresolved_accessions == ["A0A021WWV8"]
+
+
+def test_normalize_skips_inactive_records_and_keeps_active_ones(
+    tmp_path,
+    uniprot_record: dict,
+) -> None:
+    source = UniProtDataSource(
+        accessions=["P12345", "A0A021WWV8"],
+        raw_dir=tmp_path,
+    )
+
+    table = source._normalize(
+        [
+            uniprot_record,
+            {
+                "entryType": "Inactive",
+                "primaryAccession": "A0A021WWV8",
+            },
+        ]
+    )
+
+    assert list(table["protein_id"]) == ["P12345"]
+    assert source.unresolved_accessions == ["A0A021WWV8"]
+
+
 def test_repr(tmp_path) -> None:
     source = UniProtDataSource(
         accessions=["P12345", "Q99999"],
