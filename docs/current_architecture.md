@@ -1,7 +1,5 @@
 # ProteinGraph — Complete Architecture Map
 
-Analysis-only, based on reading every `.py` file under `protein_graph/` at the current checkpoint (`1bb4ecd`), cross-checked against `tests/`, `scripts/`, and `data/`. No files were modified.
-
 ---
 
 ## protein_graph/entities/
