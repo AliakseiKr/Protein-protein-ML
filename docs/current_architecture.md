@@ -1,7 +1,5 @@
 # ProteinGraph — Complete Architecture Map
 
----
-
 ## protein_graph/entities/
 
 **Role of the package:** pure data — immutable dataclasses describing biological objects (a region of a sequence, a domain, a motif occurrence, a motif's abstract definition). No I/O, no external dependencies except each other.
