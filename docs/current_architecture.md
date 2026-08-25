@@ -788,5 +788,3 @@ This matches the checkpoint's own boundary statement: exact domain-motif matchin
 | `pipelines/domain_features.py` | `DomainFeaturePipeline` | Per-domain feature table | own tests only | DORMANT |
 | `pipelines/region_features.py` | `RegionFeaturePipeline` | Generic per-region sequence features | DomainFeaturePipeline | SUPPORTING (unconnected to training) |
 | `knowledge/*.py` | — | Planned GO/KEGG/Reactome/STRING/SynGO integration | nobody | DORMANT (empty) |
-
-No files were changed, created, or deleted during this analysis (other than the creation of this report file itself).
