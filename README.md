@@ -1,3 +1,4 @@
+ProteinGraph — Machine Learning & Computational Biology Project
 Designed and developed a Python-based machine learning system for predicting protein–protein interactions and discovering hidden relationships in complex biological datasets.
 
 The project focuses on building an end-to-end data processing and ML pipeline, including data collection, preprocessing, feature engineering, integration of multiple data sources, and preparation of training datasets.
